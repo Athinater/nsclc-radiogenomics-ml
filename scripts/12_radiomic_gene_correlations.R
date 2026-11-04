@@ -12,9 +12,9 @@ source("scripts/common.R")
 # The 10 radiomic features selected most often across all pipeline x scenario x classifier
 # combinations (feature-selection results of scripts 01-04 and 07).
 top_radiomic_features <- c(
-  "NGTDM_Coarseness", "GLCM_ClusterShade", "IHMinimumGreyLevel", "IBCoefficientOfVariation",
-  "GLSZM_SmallZoneEmphasis", "IH50thPercentile", "MedianIntensity", "IHMedian",
-  "50thIntensityPercentile", "IBQuartileCoefficientOfDispersion")
+  "GLSZM_SmallZoneEmphasis", "MedianIntensity", "50thIntensityPercentile", "GLCM_ClusterShade",
+  "IBCoefficientOfVariation", "GLSZM_GreyLevelNonUniformity", "GLSZM_ZoneSizeVariance",
+  "GLSZM_LargeZoneEmphasis", "NGTDM_Coarseness", "IHMinimumGreyLevel")
 
 genes <- manuscript_genes     # the 18 genes (first 10 SCC-associated, last 8 ADC-associated)
 
