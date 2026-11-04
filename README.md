@@ -4,7 +4,6 @@ Code accompanying the manuscript:
 
 > Terzi A, Dikaios N, Protonotarios NE, Athanasiadis E, Kastis GA.
 > *Evaluation of Radiomic, Genomic, and Radiogenomic Machine Learning Models for Non-Small Cell Lung Cancer Subtype Classification.*
-> Journal of Medical Imaging. [citation / DOI to be added]
 
 The code classifies lung adenocarcinoma (ADC) versus squamous cell carcinoma (SCC) from CT-derived radiomic features, tumour RNA-Seq gene expression, and both combined, using H2O deep learning, TensorFlow/Keras and Random Forest classifiers.
 
