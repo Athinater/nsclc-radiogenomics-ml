@@ -30,8 +30,10 @@ write.csv(auc_df, out_path("roc_primary_models_auc.csv"), row.names = FALSE)
 
 models <- pm$Label
 curve_df$Model <- factor(curve_df$Model, levels = models)
-legend_labels <- setNames(sprintf("%s: AUC %.3f (95%% CI %.3f to %.3f)",
-                                  auc_df$Model, auc_df$AUC, auc_df$CI_low, auc_df$CI_high), auc_df$Model)
+legend_labels <- setNames(ifelse(auc_df$AUC >= 1,
+                                 sprintf("%s: AUC %.3f (95%% CI not estimable)", auc_df$Model, auc_df$AUC),
+                                 sprintf("%s: AUC %.3f (95%% CI %.3f to %.3f)",
+                                         auc_df$Model, auc_df$AUC, auc_df$CI_low, auc_df$CI_high)), auc_df$Model)
 p <- ggplot(curve_df, aes(x = fpr, y = tpr, colour = Model)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.5) +
   geom_path(linewidth = 0.9) +     # empirical ROC (ties give diagonal segments)

@@ -251,8 +251,17 @@ prepare_omics <- function(pipelines = c("radiogenomic", "genomic")) {
   cat("PC1 top", n_top_genes, ":", paste(gs$top_pc1, collapse = ", "), "\n")
   cat("PC2 top", n_top_genes, ":", paste(gs$top_pc2, collapse = ", "), "\n")
   cat(sprintf("Variance explained: PC1 %.1f%%, PC2 %.1f%%\n", 100 * gs$var_explained[1], 100 * gs$var_explained[2]))
+  # subtype association of each gene (training samples): mean VST expression at least 1 unit
+  # (about 2-fold) higher in SCC or in ADC; otherwise "Not subtype-associated"
+  y_tr_rna  <- cl$y[match(colnames(gs$vst), rownames(cl$data))]
+  mean_adc  <- rowMeans(gs$vst[gs$genes, y_tr_rna == 0, drop = FALSE])
+  mean_scc  <- rowMeans(gs$vst[gs$genes, y_tr_rna == 1, drop = FALSE])
+  assoc     <- ifelse(mean_scc - mean_adc >= 1, "SCC-associated",
+               ifelse(mean_adc - mean_scc >= 1, "ADC-associated", "Not subtype-associated"))
   write.csv(data.frame(Gene = gs$genes,
                        Top_PC1 = gs$genes %in% gs$top_pc1, Top_PC2 = gs$genes %in% gs$top_pc2,
+                       Mean_VST_ADC = round(mean_adc, 3), Mean_VST_SCC = round(mean_scc, 3),
+                       Association = assoc,
                        In_manuscript_list = gs$genes %in% manuscript_genes),
             out_path("selected_genes.csv"), row.names = FALSE)
 

@@ -85,7 +85,9 @@ write.csv(data.frame(Pipeline = primary$Pipeline, Classifier = primary$Classifie
 # ---- LaTeX rows (paste between \midrule and \bottomrule) ---------------------------------------
 f3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", x))
 scen_tex <- function(d, mark) paste0(d$Scenario, ifelse(d$Primary, paste0("\\textsuperscript{", mark, "}"), ""))
-auc_tex  <- function(d) sprintf("%s [%s--%s]", f3(d$Test_AUC), f3(d$CI_Low), f3(d$CI_High))
+# when the test AUC is 1 the DeLong CI is degenerate (1-1) and is shown as "n.e." (not estimable)
+auc_tex  <- function(d) ifelse(d$Test_AUC >= 1 - 1e-12, sprintf("%s [n.e.]", f3(d$Test_AUC)),
+                               sprintf("%s [%s--%s]", f3(d$Test_AUC), f3(d$CI_Low), f3(d$CI_High)))
 t2 <- best_per_scenario
 table2_tex <- sprintf("%s & %s & %s & %d & %s & %s & %s & %s & %s & %s\\\\",
                       pipeline_names[t2$Pipeline], scen_tex(t2, "e"), t2$Classifier, t2$Features,

@@ -1,6 +1,6 @@
 # ==============================================================================
 # 13_go_enrichment.R
-# Gene Ontology enrichment of the 18 PCA-selected genes, separately for the
+# Gene Ontology enrichment of the PCA-selected genes, separately for the
 # SCC-associated and ADC-associated gene sets.
 # clusterProfiler::enrichGO, org.Hs.eg.db, hypergeometric test, Benjamini-Hochberg
 # adjusted p < 0.20 (relaxed because the gene sets are small). Writes tables only.
@@ -11,20 +11,26 @@ suppressPackageStartupMessages({
 })
 source("scripts/common.R")
 
-# Gene sets: the 18 genes of the manuscript, split by subtype association
-# (first 10 = SCC-associated, last 8 = ADC-associated; see manuscript_genes in common.R).
-# If the rerun selected different genes (output/selected_genes.csv), stop: the subtype
-# assignment of the new genes must then be updated here.
+# Gene sets: the genes selected on the training set (output/selected_genes.csv, written by the
+# radiogenomic/genomic scripts), split by subtype association (mean VST expression >= 1 unit higher
+# in the training SCC or ADC samples). Without that file, the 18 genes of the submitted manuscript are used.
 sel_file <- out_path("selected_genes.csv")
-if (file.exists(sel_file)) {
-  sel <- read.csv(sel_file, stringsAsFactors = FALSE)$Gene
-  if (!setequal(sel, manuscript_genes))
-    stop("The genes selected in the rerun differ from manuscript_genes: update the gene sets in this script.\n",
-         "  New: ", paste(setdiff(sel, manuscript_genes), collapse = ", "),
-         "\n  Not selected: ", paste(setdiff(manuscript_genes, sel), collapse = ", "))
+if (file.exists(sel_file) && "Association" %in% names(read.csv(sel_file, nrows = 1))) {
+  sel <- read.csv(sel_file, stringsAsFactors = FALSE)
+  scc_genes <- sel$Gene[sel$Association == "SCC-associated"]
+  adc_genes <- sel$Gene[sel$Association == "ADC-associated"]
+  cat("Genes from", sel_file, "\n")
+  if (any(sel$Association == "Not subtype-associated"))
+    cat("Not subtype-associated (mean VST difference < 1), not used here:",
+        paste(sel$Gene[sel$Association == "Not subtype-associated"], collapse = ", "), "\n")
+  if (!setequal(sel$Gene, manuscript_genes))
+    cat("Differences from the submitted manuscript -- new:", paste(setdiff(sel$Gene, manuscript_genes), collapse = ", "),
+        "| not selected:", paste(setdiff(manuscript_genes, sel$Gene), collapse = ", "), "\n")
+} else {
+  warning(sel_file, " not found (or without the Association column); using the 18 genes of the manuscript.")
+  scc_genes <- manuscript_genes[1:10]
+  adc_genes <- manuscript_genes[11:18]
 }
-scc_genes <- manuscript_genes[1:10]
-adc_genes <- manuscript_genes[11:18]
 
 ontology   <- "BP"     # Biological Process
 p_cutoff   <- 0.20     # BH-adjusted p-value cutoff

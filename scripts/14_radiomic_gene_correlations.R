@@ -1,8 +1,8 @@
 # ==============================================================================
 # 14_radiomic_gene_correlations.R
 # Spearman correlations between the 10 most frequently selected radiomic features and
-# the 18 PCA-selected genes across the full cohort (10 x 18 = 180 pairs),
-# Benjamini-Hochberg FDR across all 180 tests (significant at q < 0.05).
+# the PCA-selected genes across the full cohort (10 features x number of genes pairs),
+# Benjamini-Hochberg FDR across all pairs (significant at q < 0.05).
 # Exploratory: this analysis does not feed back into model training.
 # Gene expression: DESeq2 variance-stabilised counts of the full cohort.
 # ==============================================================================
@@ -19,7 +19,20 @@ manuscript_radiomic_features <- c(
   "IBCoefficientOfVariation", "GLSZM_GreyLevelNonUniformity", "GLSZM_ZoneSizeVariance",
   "GLSZM_LargeZoneEmphasis", "NGTDM_Coarseness", "IHMinimumGreyLevel")
 
-genes <- manuscript_genes     # the 18 genes (first 10 SCC-associated, last 8 ADC-associated)
+# Genes: those selected on the training set in the rerun (output/selected_genes.csv), SCC-associated
+# first; without that file, the 18 genes of the submitted manuscript.
+sel_file <- out_path("selected_genes.csv")
+if (file.exists(sel_file) && "Association" %in% names(read.csv(sel_file, nrows = 1))) {
+  sel   <- read.csv(sel_file, stringsAsFactors = FALSE)
+  sel   <- sel[order(match(sel$Association, c("SCC-associated", "ADC-associated", "Not subtype-associated"))), ]
+  genes <- sel$Gene
+  gene_group <- setNames(sel$Association, sel$Gene)
+} else {
+  warning(sel_file, " not found; using the 18 genes of the manuscript.")
+  genes <- manuscript_genes
+  gene_group <- setNames(rep(c("SCC-associated", "ADC-associated"), c(10, 8)), manuscript_genes)
+}
+cat("Genes (", length(genes), "):", paste(genes, collapse = ", "), "\n")
 
 # ---- Data ---------------------------------------------------------------------------
 tbl <- load_counts(counts_file)
@@ -34,7 +47,7 @@ ids <- intersect(intersect(rownames(clinical_data), rownames(coldata)), colnames
 cat("Patients with radiomic features, clinical metadata and RNA-Seq:", length(ids), "(manuscript: 113)\n")
 if (length(ids) != 113) warning("Cohort size differs from the 113 patients reported in the manuscript.")
 
-strip_prefix <- function(x) sub("^(INTENSITY\\.BASED_|INTENSITY\\.HISTOGRAM_|X)", "", x)
+strip_prefix <- function(x) sub("\\.IBSI\\..*$", "", sub("^(INTENSITY\\.BASED_|INTENSITY\\.HISTOGRAM_|X)", "", x))
 freq_file <- out_path("feature_selection_frequency.csv")
 if (use_rerun_features && file.exists(freq_file)) {
   fq <- read.csv(freq_file, stringsAsFactors = FALSE)
@@ -61,7 +74,7 @@ if (use_rerun_features && file.exists(freq_file)) {
 feature_names <- strip_prefix(cols)
 rad <- as.matrix(clinical_data[ids, cols, drop = FALSE]); colnames(rad) <- feature_names
 
-# VST expression of the 18 genes (full cohort)
+# VST expression of the selected genes (full cohort)
 dds <- DESeq2::DESeqDataSetFromMatrix(tbl[, ids], coldata[ids, , drop = FALSE], ~ Histology)
 dds <- DESeq2::estimateSizeFactors(dds)
 dds <- DESeq2::estimateDispersions(dds, quiet = TRUE)   # required for vst(blind = FALSE)
@@ -80,7 +93,7 @@ tests <- lapply(seq_len(nrow(grid)), function(i) {
 res <- cbind(grid, do.call(rbind, tests))
 res$q_BH <- p.adjust(res$p, method = "BH")
 res$Significant <- res$q_BH < 0.05
-res$Gene_group <- ifelse(res$Gene %in% genes[1:10], "SCC-associated", "ADC-associated")
+res$Gene_group <- unname(gene_group[res$Gene])
 
 cat("\nPairs tested:", nrow(res), "| significant at q < 0.05:", sum(res$Significant), "\n")
 
