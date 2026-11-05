@@ -30,55 +30,70 @@ Radiomic features (n = 142: first-order, GLCM, GLSZM, GLRLM and NGTDM) were extr
 | File | Content |
 |---|---|
 | `GSE103584_raw_counts_GRCh38.p13_NCBI.tsv` | GEO raw count matrix (first column: Entrez GeneID; one column per sample) |
-| `clinicaldatawithout.csv` | Radiomic features + `Histology`, one row per patient (semicolon-separated, patient ID as first column) |
+| `clinicaldatawithout.csv` | Radiomic features + `Histology` (0 = ADC, 1 = SCC), one row per patient (semicolon-separated, patient ID as first column) |
 | `clinicaldata.csv` | Same structure, restricted to patients with matched RNA-Seq |
 | `onlyclinical.csv` | Clinical metadata incl. `Histology` ("Adenocarcinoma" / "Squamous cell carcinoma"), used as DESeq2 `colData` |
 
 File names are set at the top of `scripts/common.R`. The final cohort has 113 patients (87 ADC, 26 SCC); selection criteria are given in the manuscript.
 
-The genomic scripts (`05`, `06`) need only the GEO counts and `onlyclinical.csv`/`clinicaldata.csv`.
-
 ## Repository structure
 
 ```
 scripts/
-  common.R                      paths, helper functions, shared gene-selection code
-  01_radiomic_h2o.R             radiomic pipeline, H2O deep learning
-  02_radiomic_tf.R              radiomic pipeline, TensorFlow/Keras
-  03_radiogenomic_h2o.R         radiogenomic pipeline, H2O deep learning
-  04_radiogenomic_tf.R          radiogenomic pipeline, TensorFlow/Keras
-  05_genomic_h2o.R              genomic pipeline, H2O deep learning
-  06_genomic_tf.R               genomic pipeline, TensorFlow/Keras
-  07_random_forest.R            Random Forest, all three pipelines
-  analysis_helpers.R            helpers for scripts 08-10
-  08_delong_comparison.R        paired DeLong test, radiogenomic vs genomic
-  09_calibration_brier.R        Brier score, Cox recalibration intercept/slope
-  10_decision_curve.R           decision curve analysis (net benefit)
-  11_go_enrichment.R            GO enrichment of the 18 selected genes
-  12_radiomic_gene_correlations.R   Spearman correlations, radiomic features vs genes
-data/                           input files (not distributed; see above)
-output/                         created by the scripts
+  common.R                         settings, data preparation, feature selection, nested-CV runner
+  models_h2o.R / models_tf.R / models_rf.R   classifier definitions and hyperparameter grids
+  01_radiomic_h2o.R                radiomic pipeline, H2O deep learning
+  02_radiomic_tf.R                 radiomic pipeline, TensorFlow/Keras
+  03_radiogenomic_h2o.R            radiogenomic pipeline, H2O deep learning
+  04_radiogenomic_tf.R             radiogenomic pipeline, TensorFlow/Keras
+  05_genomic_h2o.R                 genomic pipeline, H2O deep learning
+  06_genomic_tf.R                  genomic pipeline, TensorFlow/Keras
+  07_random_forest.R               Random Forest, all three pipelines
+  analysis_helpers.R               helpers for scripts 08-12
+  08_tables_and_primary_models.R   Tables 2, 3 and S1, primary model per pipeline, feature-selection frequency
+  09_delong_comparison.R           paired DeLong tests between the primary models
+  10_calibration_brier.R           Brier score, Cox recalibration intercept/slope
+  11_decision_curve.R              decision curve analysis (net benefit) + figure
+  12_roc_figure.R                  ROC curves of the primary models + figure
+  13_go_enrichment.R               GO enrichment of the 18 selected genes
+  14_radiomic_gene_correlations.R  Spearman correlations, radiomic features vs genes
+data/                              input files (not distributed; see above)
+output/                            created by the scripts
 ```
 
 ## How to run
 
-Run every script from the repository root (the folder containing `scripts/` and `data/`):
+Run every script from the repository root (the folder containing `scripts/` and `data/`), in this order:
 
 ```
-Rscript scripts/01_radiomic_h2o.R
+Rscript scripts/01_radiomic_h2o.R        # 01-07 are independent of each other
+...
+Rscript scripts/07_random_forest.R
+Rscript scripts/08_tables_and_primary_models.R
+Rscript scripts/09_delong_comparison.R   # 09-12 need the output of 08
+Rscript scripts/10_calibration_brier.R
+Rscript scripts/11_decision_curve.R
+Rscript scripts/12_roc_figure.R
+Rscript scripts/13_go_enrichment.R
+Rscript scripts/14_radiomic_gene_correlations.R   # uses the feature frequencies written by 08
 ```
 
-Scripts `01`-`07` are independent training/evaluation scripts. Each writes, to `output/`, a results table (`<run>_results.csv`, with AUC, sensitivity, specificity, MCC, F1 and confusion-matrix counts) and test-set predictions (`<run>_preds_<scenario>.csv`). Scripts `08`-`10` read these prediction files, so run `01`-`07` first. Scripts `11` and `12` need the data in `data/` but not the predictions. The scripts write tables only; no figures are produced.
+Each model script writes to `output/`: `<pipeline>_<classifier>_results.csv` (one row per scenario: CV-AUC, test AUC with 95% CI, sensitivity, specificity, MCC, F1, confusion-matrix counts, selected hyperparameters, selected features), `<pipeline>_<classifier>_cv_folds.csv` (per-fold AUC, features and hyperparameters), `<pipeline>_<classifier>_preds_<scenario>.csv` (test-set predictions with patient ID, true label, `prob_SCC`, `prob_ADC`) and `<pipeline>_<classifier>_sessionInfo.txt`. All numbers in the tables and figures are computed from these files.
+
+To drop a feature-selection scenario from all analyses, edit `scenarios_to_run` in `scripts/common.R`.
 
 ## Methods implemented
 
-- **Split:** stratified 70/30 split (training n = 80, test n = 33; test set 26 ADC, 7 SCC), seed 123. The test set is used once, for final evaluation.
-- **Scenarios** (all feature selection uses training data only): S0 all features; SA LASSO (`cv.glmnet`, alpha = 1, 5-fold, lambda.min); SB LASSO + mRMR; SC SB + principal-component loading features covering >= 90% of the variance (capped at 10 components).
-- **Genes:** 18 genes from the variance-stabilised training counts (DESeq2, `vst(blind = FALSE)`): top-10 absolute loadings of PC1 and PC2. Inside each cross-validation fold the genes are re-selected from the fold-training samples only. Validation/test counts are transformed with the training dispersions and their own size factors.
-- **Evaluation:** nested 5-fold cross-validation with an inner stratified 20% hold-out for hyperparameter selection, then a final refit on the full training set and one evaluation on the test set.
-- **Classifiers:** H2O deep learning (two hidden layers, grid search, 40 epochs); TensorFlow/Keras (two ReLU dense layers with batch normalisation, L1/L2 regularisation, Adam, batch size 8, 40 epochs, inverse-frequency class weights); Random Forest (`randomForest`, 500 trees, `maxnodes` grid, class weights 1:2 for ADC:SCC). H2O models do not use class weights (`balance_classes = FALSE`).
-- **Class coding and metrics:** histology is coded 0 = ADC, 1 = SCC. Sensitivity, specificity, MCC and F1 use **ADC as the positive class**. TensorFlow and Random Forest predictions use a fixed 0.5 probability threshold; H2O uses its default predicted label. AUC and its confidence interval are computed with `pROC`.
-- **Seeds:** 123 throughout (`set.seed(123)`, `tf$random$set_seed(123)`, `seed = 123` in H2O).
+- **Split:** stratified 70/30 split (training n = 80, test n = 33; test set 26 ADC, 7 SCC), seed 123. The test set is used once, for the final evaluation. The test-patient IDs of each pipeline are written to `output/<pipeline>_test_ids.txt`.
+- **Preprocessing:** near-zero-variance filter (label-free) and z-scaling with training-set statistics; inside each cross-validation fold the z-scaling is repeated with the fold-training statistics. RNA-Seq counts: genes with >= 10 counts in >= 2 samples (label-free filter on all samples), Entrez ID to symbol mapping with `org.Hs.eg.db`.
+- **Genes:** DESeq2 size factors, dispersions and dispersion trend estimated on the training samples; variance-stabilising transformation with that trend (`varianceStabilizingTransformation(blind = FALSE)`); the 18 genes are the top-10 absolute loadings of PC1 and PC2 of the training VST matrix. Test (and CV-validation) samples get their own size factors and are transformed with the training dispersion trend (frozen VST); their labels are not used. Inside each cross-validation fold the genes are re-selected from the fold-training samples only.
+- **Feature-selection scenarios** (training data only; the same features for every classifier): S0 all features; SA LASSO (`cv.glmnet`, alpha = 1, 5-fold, lambda.min; fallback top-5 features by absolute correlation); SB SA + mRMR (`mRMRe`, max(#SA, 5) features); SC SB + the features with the largest absolute loading on the principal components covering >= 90% of the variance (at most 10). In the radiogenomic pipeline the 5 radiomic features most correlated with the class are always added to SA (and therefore to SB and SC).
+- **Nested cross-validation:** stratified 5-fold outer CV on the training set. In every outer fold, feature selection, hyperparameter selection (stratified inner 20% hold-out, highest inner AUC) and a refit of the selected configuration on the whole fold-training set are performed; the fold-validation patients are used only to compute the CV-AUC. The final model repeats the same procedure on all 80 training patients (selection on an inner 20% hold-out, then refit on all 80) and is evaluated once on the test set.
+- **Classifiers:** H2O deep learning (two hidden layers, RectifierWithDropout, grid over layer sizes and input dropout {0, 0.1}, 40 epochs without early stopping, `reproducible = TRUE`, no class weights); TensorFlow/Keras (two ReLU dense layers, batch normalisation after the first layer, L1/L2 = 1e-4, dropout grid {0.1, 0.2}, Adam lr 0.001, batch size 8, 40 epochs, inverse-frequency class weights, op determinism enabled and `set_random_seed(123)` before every model); Random Forest (`randomForest`, 500 trees, grid mtry {sqrt(p), p/3} x maxnodes {10, 20, 30}, class weights 1:2 for ADC:SCC). The same hyperparameter grids as in the manuscript are used.
+- **Class coding and metrics:** histology is coded 0 = ADC, 1 = SCC; models output P(SCC). **ADC is the positive class** for AUC, sensitivity, specificity, MCC, F1 and the post-hoc analyses. All classifiers use the same fixed threshold (P(SCC) >= 0.5 → SCC). AUC and its 95% CI (DeLong) are computed with `pROC` with a fixed curve direction.
+- **Model selection:** Table 2 shows, for each pipeline and scenario, the classifier with the highest CV-AUC; the primary model of each pipeline is the pipeline/scenario/classifier with the highest CV-AUC (ties: fewer features, then H2O, TF, RF). The test set is not used for these choices. All combinations are given in Table S1 (`output/table_S1_all_models.csv`).
+- **Post-hoc analyses (primary models):** paired DeLong test matched by patient ID (radiogenomic vs genomic as the primary comparison), Brier score and Cox recalibration, decision curve analysis (event = ADC, thresholds 2-80%).
+- **Seeds:** 123 for the split, the folds, the inner hold-outs and every model; the LASSO cross-validation uses seed 123 for the final model and 123 + k inside outer fold k.
 
 ## Software
 
@@ -102,7 +117,7 @@ The scripts were last run in the following environment:
 | data.table | 1.17.8 |
 | LIFEx (feature extraction) | 7.6.7 |
 
-Neural-network results can differ slightly across hardware and library versions even with fixed seeds. Please record `sessionInfo()` when reproducing.
+Neural-network results can differ slightly across hardware and library versions even with fixed seeds. Each model script writes its `sessionInfo()` to `output/`.
 
 ## Licence
 
